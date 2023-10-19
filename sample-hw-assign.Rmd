@@ -1,0 +1,51 @@
+---
+title: "Week 0 - Homework Sample"
+author: "STAT 420, D. Unger"
+date: ''
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    theme: readable
+    toc: yes
+urlcolor: cyan
+---
+
+
+# Overview
+
+The purpose of this file is just to showcase some basics of how you might choose to construct your HW submissions. The first one is done for you as an example. You are encouraged to complete the rest on your own.
+
+***
+
+## Exercise 1 (Arithmetic)
+
+For this exercise, we will practice some basic operations using R.
+
+**(a)** What is 8 + 3?
+
+```{r}
+8 + 3
+```
+
+The answer is 11.
+
+**(b)** What is 4 - 9?
+
+**(c)** If you owned 10 apples and sold 2 to your friend, how many apples do you have left?
+
+**(d)** If you sold those 2 apples to your friend for $7 each, how much money have you made?
+
+**(e)** What kind of friend are you if you *sell* your apples to your friend (and at a ridiculous markup of $7 each!!!)?
+
+## Exercise 2 (Add-ons)
+
+**(a)** What is 8 + 3? Don't use `R` this time. Just write the expression and answer in `TeX`.
+
+**(b)** Insert an image of a statistics joke from your computer. Hint: This is easiest if the image file is in the same folder as this RMD file.
+
+**(c)** Insert an image of a statistics joke from the internet.
+
+
+
+
