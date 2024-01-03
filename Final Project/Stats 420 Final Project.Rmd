@@ -1,0 +1,114 @@
+---
+title: "Stats 420 Final Project"
+author: "Scott Girten"
+date: "7/27/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(GGally)
+
+
+setwd("~/Masters/Applied Statistics/Final Project")
+
+data = read_csv('Life-Expectancy-Data-Updated.csv')
+
+skim(data)
+
+# Variables Population and Hepatitis B have a large number (and percent) of missing values
+# If we remove those 2 columns and then remove incomplete observations - we are left with 2226/2848 records
+df = data %>% 
+  select(-c(Population_mln, Country, Region, Year, Economy_status_Developing)) %>% 
+  na.omit()
+
+
+#pairs(df[4:20])
+p_pairs = ggpairs(df, upper = list(combo = 'facetdensity'))
+p_pairs
+
+ggsave('Final Project Correlation Matrix Updated.png', p_pairs, device = 'png', bg = 'white', width = 20, height = 12)
+
+```
+
+
+```{r full model}
+data_raw = data
+
+life_exp = data %>% 
+  select(-c(Population, `Hepatitis B`, Country))
+
+# change Status & Country to factors
+life_exp$Status = as.factor(life_exp$Status)
+#life_exp$Country = as.factor(life_exp$Country)
+
+life_full = lm(`Life expectancy` ~ ., data = life_exp) 
+life_full2 = lm(`Life expectancy` ~ (.)^2, data = life_exp)
+
+
+```
+
+
+```{r  collinearity full model}
+
+vif_full = faraway::vif(life_full)
+
+vif_collinearity = vif_full[vif_full > 5]
+
+vif_collinearity
+
+# Remove infant deaths since it is highly correlated with under-five deaths 
+# Remove thinness 5-9 since it's highly correlated with thinness 10-19
+df = df %>% 
+  select(-c(`infant deaths`, `thinness 5-9 years`))
+
+```
+
+```{r vif with na omit}
+
+# df = df %>% 
+#   mutate(Status = as.factor(Status),
+#          Country = as.factor(Status))
+
+life_omit = lm(`Life expectancy` ~ . -Country, data = df)
+
+vif_omit = faraway::vif(life_omit)
+vif_omit
+```
+
+```{r collinearity with GDP and Pct Expend}
+gdp = lm(`Life expectancy` ~ . -GDP, data = df)
+wo_gdp = lm(GDP ~ . -`Life expectancy`, data = df)
+
+cor(resid(gdp), resid(wo_gdp))
+```
+
+```{r full model interaction v2}
+
+full_v2 = lm(`Life expectancy` ~ (.)^2, data = df)
+summary(full_v2)
+```
+
+
+
+```{r full model v3}
+
+# GDP and percentage expenditure do not seem significant in the full interaction model - test for significance
+wo_gdp_pct_exp = df %>% 
+  select(-c(GDP, `percentage expenditure`))
+
+wo_gdp_exp_mod = lm(`Life expectancy` ~ (Year + Status + `Adult Mortality` + Alcohol + Measles + BMI + `under-five deaths` + 
+                                           Polio + `Total expenditure` + Diphtheria + `HIV/AIDS` + `thinness  1-19 years` +
+                                           `Income composition of resources` + Schooling + GDP)^2, data = df)
+
+anova(wo_gdp_exp_mod, full_v2)
+
+# Need to check for outliers, split data into train/test
+
+```
+

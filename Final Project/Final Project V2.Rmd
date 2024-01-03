@@ -1,0 +1,246 @@
+---
+title: "Stat 420 Final Project V2"
+author: "Scott Girten"
+date: "8/1/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(GGally)
+
+
+setwd("~/Masters/Applied Statistics/Final Project")
+
+data = read_csv('Life-Expectancy-Data-Updated.csv')
+data = data %>% 
+  mutate(Year = as.factor(Year))
+
+skim(data)
+
+# Variables Population and Hepatitis B have a large number (and percent) of missing values
+# If we remove those 2 columns and then remove incomplete observations - we are left with 2226/2848 records
+df = data %>% 
+  select(-c(Population_mln, Country, Region, Economy_status_Developing)) %>% # Year,
+  na.omit()
+
+
+#pairs(df[4:20])
+#p_pairs = ggpairs(df, upper = list(combo = 'facetdensity'))
+#p_pairs
+
+#ggsave('Final Project Correlation Matrix Updated.png', p_pairs, device = 'png', bg = 'white', width = 20, height = 12)
+
+```
+
+```{r test-train split}
+life_data = df
+
+set.seed(42)
+
+n = nrow(life_data)
+
+life_idx = sample(n, n*0.8)
+
+life_trn = life_data[life_idx, ]
+life_tst = life_data[-life_idx, ]
+```
+
+```{r additive model}
+library(faraway)
+
+add_mod_full = lm(Life_expectancy ~ ., data = life_trn)
+summary(add_mod_full) # adjusted r^2 ~ 0.98
+
+
+```
+
+```{r vif additive model}
+
+vif(add_mod_full)
+
+```
+
+```{r infant deaths}
+
+# Infant_deaths & Under_five_deaths
+cor(life_trn$Infant_deaths, life_trn$Under_five_deaths) # 0.9833192
+
+infant_deaths_mod = lm(Infant_deaths ~ . - Life_expectancy, data = life_trn)
+add_mod_wo_infant = lm(Life_expectancy ~ . - Infant_deaths, data = life_trn)
+
+cor(resid(infant_deaths_mod), resid(add_mod_wo_infant)) # -0.1795948
+## Remove Infant_deaths
+
+```
+
+```{r thinness}
+# Thinness_five_nine_years & Thinness_ten_nineteen_years
+cor(life_trn$Thinness_five_nine_years, life_trn$Thinness_ten_nineteen_years) # 0.9551548
+
+thiness_5_mod = lm(Thinness_five_nine_years  ~ . - Life_expectancy - Infant_deaths, data = life_trn)
+add_mod_wo_t5 = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths, data = life_trn)
+
+cor(resid(thiness_5_mod), resid(add_mod_wo_t5)) # 0.05916652
+## Remove Thinness_five_nine_years
+```
+
+```{r diphtheria}
+
+# Diphtheria & Polio
+cor(life_trn$Diphtheria, life_trn$Polio) # 0.9600593
+
+diph_mod = lm(Diphtheria ~ . - Life_expectancy - Infant_deaths - Thinness_five_nine_years, data = life_trn)
+add_mod_wo_diph = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria, data = life_trn)
+
+cor(resid(diph_mod), resid(add_mod_wo_diph)) # -0.04341988
+## Remove Diphtheria
+
+```
+
+```{r infant and U5 deaths}
+# Under_five_deaths & Adult_mortality
+u5_mod = lm(Under_five_deaths ~ . - Life_expectancy - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria, data = life_trn)
+add_mod_wo_u5 = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria - Under_five_deaths, data = life_trn)
+
+cor(resid(u5_mod), resid(add_mod_wo_u5)) #-0.7047716
+## Under_five_deaths not removed
+
+
+```
+
+```{r update life_trn v2}
+# Remove Year, Infant deaths, thinness_five_nine_years, diphtheria
+life_trn = life_trn %>% 
+  select(-c(Year, Infant_deaths, Thinness_five_nine_years, Diphtheria))
+
+formula_print = str_c(names(life_trn), collapse = ' + ')
+
+add_mod_v2 = lm(Life_expectancy ~ Under_five_deaths + Adult_mortality + Alcohol_consumption + 
+                                  Hepatitis_B + Measles + BMI + Polio + Incidents_HIV + GDP_per_capita + 
+                                  Thinness_ten_nineteen_years + Schooling + Economy_status_Developed,
+                data = life_trn)
+
+summary(add_mod_v2) # adjusted R^2 still ~ 0.98
+# no loss in Adjusted R^2, look to remove more variables
+
+# Measles and Polio not significant - remove and rerun model
+
+```
+
+```{r vif add_mod_v2}
+
+vif(add_mod_v2)
+# Under_five_deaths and Adult_mortality still show collinearity
+
+```
+
+
+```{r add_mod_v3}
+life_trn = life_trn %>% 
+  select(-c(Measles, Polio))
+
+#formula_print = str_c(names(life_trn), collapse = ' + ')
+
+add_mod_v3 = lm(Life_expectancy ~ Under_five_deaths + Adult_mortality + Alcohol_consumption + 
+                                  Hepatitis_B +  BMI +  Incidents_HIV + GDP_per_capita + 
+                                  Thinness_ten_nineteen_years + Schooling + Economy_status_Developed,
+                data = life_trn)
+
+summary(add_mod_v3)
+# Adjusted r^2 still at ~ 0.98
+```
+
+```{r}
+vif(add_mod_v3)
+# A little concerned about under_five_deaths and Adult_mortality - both are strongly negatively correlated with life expectancy
+```
+
+```{r diagnostic plots v3}
+library(patchwork)
+
+# function from week 8 homework
+diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', alpha = 0.05, plotit = TRUE, testit = TRUE){
+  
+  # Create individual diagnostic components
+  
+  # Fitted vs Residuals plot
+  p1 = ggplot(model, aes(x = .fitted, y = .resid)) +
+    geom_point(color = pcol) +
+    geom_hline(yintercept = 0, color = lcol) +
+    theme_minimal() +
+    labs(x = 'Fitted',
+         y = 'Residuals',
+         title = 'Fitted vs. Residuals Plot')
+
+  # Normal Q-Q Plot
+  p2 = ggplot(model, aes(sample = .resid)) +
+    geom_qq(color = pcol) +
+    geom_qq_line(color = lcol) +
+    theme_minimal() +
+    labs(x = 'Theoretical Quartiles',
+         y = 'Sample Quartiles',
+         title = 'Normal Q-Q Plot')
+  
+  # Combine plots side by side
+  p_final = p1 + p2
+
+
+  # p-value and decision 
+  p_val = shapiro.test(model$residuals)$p.value
+  decision = if_else(p_val < alpha, 'Reject', 'Fail to Reject')
+
+  
+  # Logic for which diagnostics should be returned by function
+  output = list('p_val' = p_val, 'decision' = decision, 'plots' = p_final)
+  
+  if(plotit == TRUE & testit == TRUE){
+    return(output)
+  }
+  else if(plotit == TRUE & testit == FALSE){
+    return(output[3])
+  }
+  else if(plotit == FALSE & testit == TRUE){
+    return(output[1:2])
+  }
+  
+}
+
+diagnostics(add_mod_v3)
+
+```
+
+
+```{r add_mod_v4}
+life_trn = life_trn %>% 
+  select(-c(Hepatitis_B))
+
+#formula_print = str_c(names(life_trn), collapse = ' + ')
+
+add_mod_v4 = lm(Life_expectancy ~ Under_five_deaths + Adult_mortality + Alcohol_consumption + 
+                                  BMI +  Incidents_HIV + log(GDP_per_capita) + 
+                                  Thinness_ten_nineteen_years + Schooling + Economy_status_Developed,
+                data = life_trn)
+
+summary(add_mod_v4)
+
+
+
+```
+
+```{r vif add_mod_v4}
+vif(add_mod_v4)
+
+```
+
+```{r diagnostics add_mod_v4}
+
+diagnostics(add_mod_v4)
+
+```
+

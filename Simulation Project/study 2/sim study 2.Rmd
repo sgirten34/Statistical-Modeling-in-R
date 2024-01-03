@@ -1,0 +1,369 @@
+---
+title: "sim study 2"
+author: "Scott Girten"
+date: "6/15/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Simulation Study 2: Using RMSE for Selection?
+
+
+## Introduction
+
+In homework we saw how Test RMSE can be used to select the “best” model. In this simulation study we will investigate how well this procedure works. Since splitting the data is random, we don’t expect it to work correctly each time. We could get unlucky. But averaged over many attempts, we should expect it to select the appropriate model.
+
+We will simulate from the model
+
+\[
+Y_i = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2} + \beta_3 x_{i3} + \beta_4 x_{i4} + \beta_5 x_{i5} + \beta_6 x_{i6} + \epsilon_i
+\]
+
+where $\epsilon_i \sim N(0, \sigma^2)$ and
+
+- $\beta_0 = 0$,
+- $\beta_1 = 3$,
+- $\beta_2 = -4$,
+- $\beta_3 = 1.6$,
+- $\beta_4 = -1.1$,
+- $\beta_5 = 0.7$,
+- $\beta_6 = 0.5$.
+
+We will consider a sample size of $500$ and three possible levels of noise. That is, three values of $\sigma$.
+
+- $n = 500$
+- $\sigma \in (1, 2, 4)$
+
+Use the data found in [`study_2.csv`](study_2.csv) for the values of the predictors. These should be kept constant for the entirety of this study. The `y` values in this data are a blank placeholder.
+
+Each time you simulate the data, randomly split the data into train and test sets of equal sizes (250 observations for training, 250 observations for testing).
+
+For each, fit **nine** models, with forms:
+
+- `y ~ x1`
+- `y ~ x1 + x2`
+- `y ~ x1 + x2 + x3`
+- `y ~ x1 + x2 + x3 + x4`
+- `y ~ x1 + x2 + x3 + x4 + x5`
+- `y ~ x1 + x2 + x3 + x4 + x5 + x6`, the correct form of the model as noted above
+- `y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7`
+- `y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8`
+- `y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9`
+
+For each model, calculate Train and Test RMSE.
+
+\[
+\text{RMSE}(\text{model, data}) = \sqrt{\frac{1}{n} \sum_{i = 1}^{n}(y_i - \hat{y}_i)^2}
+\]
+
+Repeat this process with $1000$ simulations for each of the $3$ values of $\sigma$. For each value of $\sigma$, create a plot that shows how average Train RMSE and average Test RMSE changes as a function of model size. Also show the number of times the model of each size was chosen for each value of $\sigma$.
+
+Done correctly, you will have simulated the $y$ vector $3×1000=3000$ times. You will have fit $9×3×1000=27000$ models. A minimal result would use $3$ plots. Additional plots may also be useful.
+
+Potential discussions:
+
+- Does the method **always** select the correct model? On average, does is select the correct model?
+- How does the level of noise affect the results?
+
+An additional tip:
+
+- To address the second discussion topic, consider making a line graph for the RMSE values at each level of $\sigma$. Within a single plot for a given $\sigma$, one line could correspond to the training data and the other to the test data. 
+
+
+## Methods
+
+We begin by setting a seed and reading in data which will be used for this simulation study.  
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+
+# Set seed
+birthday = 19790221
+set.seed(birthday)
+
+# Read in data for predictors
+sim2_data = read_csv('study_2.csv')
+```
+
+### Helper Functions
+
+Next, helper functions are created to streamline repetitive steps in this simulation.  Specifically, functions to calculate RMSE, split data in training and testing data sets, fit data to a linear model and finally a function to select the best performing model based on the RMSE performance.    
+
+```{r helper functions}
+# Function to calculate RMSE
+rmse = function(n, y, y_hat){
+  # n = number of observations
+  # y = observed y-value
+  # y_hat = estimate of y_hat
+  
+  output = sqrt(sum((y - y_hat)^2) / n)
+  
+  return(output)
+}
+
+
+# Function to perform splitting of data set in testing and training
+train_test_split = function(data, split_prop = 0.50){
+  # Add a row number to input data frame to use 
+  df = data %>% mutate(row_num = row_number())
+  
+  # Perform split into test and train
+  train = slice_sample(df, prop =  split_prop)
+  test = df %>% anti_join(train, by = 'row_num')
+  
+  # Remove row number
+  train = train %>% select(-row_num)
+  test = test %>% select(-row_num)
+  
+  # Return split data
+  output = list('train' = train, 'test' = test)
+  return(output)
+}
+
+# Function for fitting a model
+fit_model = function(fit_data, formula, n_train, n_test, results, i){
+  
+  #Split data
+  data_split = train_test_split(fit_data)
+  
+  data_train = data_split$train
+  data_test = data_split$test
+  
+  # y-values for training and testing data sets, used for RMSE
+  y_train = data_train$y
+  y_test  = data_test$y
+  #print(length(y_train))
+  
+  # Train and test model 
+  train_model = lm(formula, data = data_train)
+  predict_y = predict(train_model, newdata = data_test)
+  #print(formula)
+  
+  # Calculate train and test RMSE
+  train_rmse = rmse(n_train, y_train, train_model$fitted.values)
+  test_rmse = rmse(n_test, y_test, predict_y)
+  #print(sqrt(mean(train_model$residuals^2)))
+  
+  results[i, 3] = train_rmse
+  results[i, 4] = test_rmse
+  results[i, 5] = i
+  
+  return(results)
+}
+
+# Function to indicate lowest RMSE for testing data
+select_best_model = function(df){
+  df_out = df %>% 
+  group_by(Iteration) %>% 
+  arrange(Test_RMSE) %>% 
+  mutate(Selected_Model = if_else(row_number() == 1, 1, 0)) %>% 
+  ungroup()  
+  
+  return(df_out)
+}
+
+```
+
+
+###Simulation function
+
+This is the main simulation function that utilizes some of the helper functions to perform the simulation.  
+
+```{r simulation function}
+
+
+simulation_2 = function(data, sigma = 1, split_prop = 0.5, iterations = 10){
+  
+  # Sample size of data
+  sample_size = nrow(data)
+  
+  # Number of train and test observations - used for simulation
+  n_train = nrow(data) * split_prop
+  n_test = nrow(data) - n_train
+  
+  # Create formulas for models
+  formula_1 = y ~ x1
+  formula_2 = y ~ x1 + x2
+  formula_3 = y ~ x1 + x2 + x3
+  formula_4 = y ~ x1 + x2 + x3 + x4
+  formula_5 = y ~ x1 + x2 + x3 + x4 + x5
+  formula_6 = y ~ x1 + x2 + x3 + x4 + x5 + x6
+  formula_7 = y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7
+  formula_8 = y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8
+  formula_9 = y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9
+
+  # Tables to hold results for each model - will be combined as the final output of the function
+  results_1 = tibble(Model = 'Model 1', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_2 = tibble(Model = 'Model 2', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_3 = tibble(Model = 'Model 3', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_4 = tibble(Model = 'Model 4', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_5 = tibble(Model = 'Model 5', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_6 = tibble(Model = 'Model 6', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_7 = tibble(Model = 'Model 7', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_8 = tibble(Model = 'Model 8', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  results_9 = tibble(Model = 'Model 9', Sigma = sigma, Train_RMSE = rep(0, iterations), Test_RMSE = rep(0, iterations), Iteration = rep(0, iterations))
+  
+  # Create betas for simulation
+  b0 = 0
+  b1 = 3
+  b2 = -4
+  b3 = 1.6
+  b4 = -1.1
+  b5 = 0.7
+  b6 = 0.5
+ 
+  
+  
+  for(i in 1:iterations){
+
+    # Error for model
+    eps = rnorm(sample_size, mean = 0, sd = sigma)
+
+    # Simulate Data for true model
+    sim_data = data %>% 
+      mutate(y = b0 + b1*x1 + b2*x2 + b3*x3 + b4*x4 + b5*x5 + b6*x6 + eps)
+    
+    # Results for each of the nine models
+    results_1 = fit_model(sim_data, formula_1,  n_train, n_test, results_1, i)
+    results_2 = fit_model(sim_data, formula_2,  n_train, n_test, results_2, i)
+    results_3 = fit_model(sim_data, formula_3,  n_train, n_test, results_3, i)
+    results_4 = fit_model(sim_data, formula_4,  n_train, n_test, results_4, i)
+    results_5 = fit_model(sim_data, formula_5,  n_train, n_test, results_5, i)
+    results_6 = fit_model(sim_data, formula_6,  n_train, n_test, results_6, i)
+    results_7 = fit_model(sim_data, formula_7,  n_train, n_test, results_7, i)
+    results_8 = fit_model(sim_data, formula_8,  n_train, n_test, results_8, i)
+    results_9 = fit_model(sim_data, formula_9,  n_train, n_test, results_9, i)
+
+    
+  }
+  
+  # Bind results together for all 9 models into one data frame
+  output = results_1 %>% 
+    bind_rows(results_2,
+              results_3,
+              results_4,
+              results_5,
+              results_6,
+              results_7,
+              results_8,
+              results_9)
+  
+  
+  return(output)
+  
+}
+
+```
+
+
+### Run the simulation
+
+```{r simulation}
+# Number of iterations for each simulation
+iteration = 1000
+
+# Perform simulation
+results_sigma1 = simulation_2(data = sim2_data, sigma = 1, iterations = iteration)
+results_sigma2 = simulation_2(data = sim2_data, sigma = 2, iterations = iteration)
+results_sigma4 = simulation_2(data = sim2_data, sigma = 4, iterations = iteration)
+
+# Get the selected model for each iteration of the simulation
+results_sigma1 = select_best_model(results_sigma1)
+results_sigma2 = select_best_model(results_sigma2)
+results_sigma4 = select_best_model(results_sigma4)
+
+# Combine simulation results into one dataframe for analysis
+results_all = results_sigma1 %>% 
+  bind_rows(results_sigma2,
+            results_sigma4)
+
+```
+
+### Visuals Average RMSE
+
+```{r avg RMSE}
+
+# Data for average RMSE visual
+df_avg_rmse = results_all %>% 
+  group_by(Sigma, Model) %>% 
+  summarise(Train = mean(Train_RMSE),
+            Test = mean(Test_RMSE)) %>% 
+  mutate(sigma_display = str_c('Sigma = ', Sigma)) %>% 
+  pivot_longer(cols = c(Train, Test), names_to = 'RMSE Type', values_to = 'Avg_value')
+
+# plot
+p_avg_rmse = ggplot(df_avg_rmse, aes(x = Model, y = Avg_value, group = `RMSE Type`, color = `RMSE Type`)) + #, color = RMSE_type
+  geom_line(aes(linetype = `RMSE Type`)) +
+  geom_point() +
+  facet_wrap(. ~ sigma_display) +
+  scale_color_manual(values = c('#fc8d62', '#8da0cb')) +
+  scale_linetype_manual(values = c('dashed', 'solid')) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "bottom") +
+  labs(x = NULL,
+       y = 'Average RMSE')
+
+
+
+```
+
+### Visuals Model Selection
+
+
+```{r model selection visual}
+
+# Data for average RMSE visual
+df_selected = results_all %>% 
+  group_by(Sigma, Model) %>% 
+  summarise(`Model Selected` = sum(Selected_Model)) %>% 
+  mutate(sigma_display = str_c('Sigma = ', Sigma)) %>% 
+  mutate(`True Model` = if_else(Model == 'Model 6', 'Y', 'N'))
+
+p_selected = ggplot(df_selected, aes(x = Model, y = `Model Selected`)) +
+  geom_col(aes( fill = `True Model`)) +
+  facet_wrap(. ~ sigma_display) +
+  scale_fill_manual(values = c('#a6d854', '#e78ac3')) +
+  theme_bw() +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "bottom") +
+  labs(x = NULL,
+       y = 'Number of Times a Model Produced the \nLowest RMSE in an Iteration')
+
+
+```
+
+## Results
+
+The first visual shows the average RMSE performance for each model as the value of $\sigma$ changes.  The second visual shows the number of times a model was selected based on the lowest RMSE performance for a given iteration in the simulation.   
+
+### Average RMSE 
+
+```{r echo=FALSE}
+p_avg_rmse
+
+```
+
+### Model Selection Based on RMSE
+
+```{r echo=FALSE}
+p_selected
+```
+
+## Discussion
+
+RMSE does not always select the correct model in this simulation (Model 6).  Looking at the first set of visuals in the Results section showing the average RMSE for each model and each value of $\sigma$, for all levels of $\sigma$ model 3 (predictors x1 + x2+ x3) would be the model that represents the best compromise between model performance while also minimizing the number of predictor variables.  Interestingly, the value of $\sigma$ did not affect the selection of the optimal model when evaluating by the average RMSE.  The general trend is the same for all 3 values of $\sigma$.  An increase in $\sigma$ does increase the absolute amount of error in the model, but the bend in the trend line is consistently at model 3. 
+
+The second visual in the results section shows the number of times a model was selected as the best performing model based on the lowest test RMSE.  This method of model selection favors models with a larger number of variables.  A low level of $\sigma$ seems to be more discriminating in only selecting the largest models, but as the value of $\sigma$ increases the chance that a smaller model could be the best performing model also increases. 
+
+Generally, the increase in the amount of noise in the model seems to mute any patterns in the models performance.  In the first visual of the trend in average RMSE,  as the noise increases the decrease in RMSE becomes less substantial.  I would assume for a large amount of noise in the data, this trend line would become almost flat and would be difficult to detect a difference in the performance for any of the models. Likewise for the second visual, as the noise increases the bar graph for $\sigma$ = 4 almost resembles a uniform distribution.  It would make sense that as $\sigma$ increase this visual would become more uniform and any given model would have roughly the same likelihood to be selected as the optimal model.  This increase in noise would then basically hide the signal of the model visually.  
+
+```{r clear memory, echo=FALSE}
+rm(list = ls())
+```
+
+***
+

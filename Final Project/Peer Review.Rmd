@@ -1,0 +1,34 @@
+---
+title: "Final Project Peer Review"
+author: "Scott Girten"
+date: '08/04/23'
+output:
+  pdf_document: default
+urlcolor: cyan
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Scott Girten**
+I worked on the introduction, data cleaning, variable transformations, model selection, visualizations ,model evaluation and results.  
+Communication: 100  
+Understood Concepts: 100  
+Proportion Completed: ~ 35%
+
+
+
+**Alice Fu**
+She worked on the Introduction, data cleaning, model selection, visualization, model evaluation, model comparison and Discussion.  
+Communication: 100  
+Understood Concepts: 100  
+Proportion Completed: ~ 35%
+
+
+
+**Maxim Aldaranov**
+He worked on the Introduction, dataset information, data cleaning, ,model selection, model evaluation, model comparison and Discussion.  
+Communication: 100  
+Understood Concepts: 100  
+Proportion Completed: ~ 35%

@@ -1,0 +1,501 @@
+---
+title: "simulation Study 1"
+author: "Scott Girten"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: readable
+    toc: yes
+    toc_float: true
+  pdf_document:
+    toc: yes
+urlcolor: cyan
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+
+# Simulation Study 1: Significance of Regression
+
+## Introduction
+
+In this simulation study we will investigate the significance of regression test. We will simulate from two different models:
+
+1. The **"significant"** model
+
+\[
+Y_i = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2} + \beta_3 x_{i3} + \epsilon_i
+\]
+
+where $\epsilon_i \sim N(0, \sigma^2)$ and
+
+- $\beta_0 = 3$,
+- $\beta_1 = 1$,
+- $\beta_2 = 1$,
+- $\beta_3 = 1$.
+
+
+2. The **"non-significant"** model
+
+\[
+Y_i = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2} + \beta_3 x_{i3} + \epsilon_i
+\]
+
+where $\epsilon_i \sim N(0, \sigma^2)$ and
+
+- $\beta_0 = 3$,
+- $\beta_1 = 0$,
+- $\beta_2 = 0$,
+- $\beta_3 = 0$.
+
+For both, we will consider a sample size of $25$ and three possible levels of noise. That is, three values of $\sigma$.
+
+- $n = 25$
+- $\sigma \in (1, 5, 10)$
+
+Use simulation to obtain an empirical distribution for each of the following values, for each of the three values of $\sigma$, for both models.
+
+- The **$F$ statistic** for the significance of regression test.
+- The **p-value** for the significance of regression test
+- **$R^2$**
+
+For each model and $\sigma$ combination, use $2000$ simulations. For each simulation, fit a regression model of the same form used to perform the simulation.
+
+
+## Methods
+
+I begin this first simulation study by setting a seed for functions that will generate randomness and reading a data file that contains data for 25 observations that will serve as the values for the predictors of both the significant and non-significant models.  
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+
+# Set seed
+birthday = 19790221
+set.seed(birthday)
+
+# Read in data for predictors
+sim1_data = read_csv('study_1.csv')
+
+```
+
+
+### Simulation
+
+The first step in obtaining the simulated data for this study is to create a function that will perform the simulation.  The function will accept arguments that will allow for elements of the regression model or simulation to be modified, making subsequent portions of this study more streamlined .
+
+```{r}
+# Create function to perform simulation - only argument to the function is sigma (noise)
+
+simulation_1 = function(data, beta_0, beta_1, beta_2, beta_3, sigma, sample_size, iterations, model_name){
+  
+  # create tables to hold results of study and be used for output of the function
+  # Initialize columns used in results tables to 0
+  f_stat    = rep(0, iterations)
+  p_value   = rep(0, iterations)
+  r_squared = rep(0, iterations)
+  
+  # Result table of simulation, will be used as output of the function
+  results = tibble(model_type = model_name, sigma = sigma, f_stat, p_value, r_squared)
+  
+  for(i in 1:iterations){
+    # Error for model
+    eps = rnorm(sample_size, mean = 0, sd = sigma)
+    
+    # Calculate y-value from known model
+    sim_data = data %>% 
+    mutate(y = beta_0 + beta_1 * x1 + beta_2 * x2 + beta_3 * x3 + eps)
+    
+    # fit model from simulated data
+    fit = lm(y ~ ., data = sim_data)
+    
+    # calculate p-value for F-statistic to store in results
+    f = summary(fit)$fstatistic
+    p_val = pf(f[1], f[2], f[3], lower.tail = FALSE)
+    
+    # Add results to table
+    results$f_stat[i]    = summary(fit)$fstatistic[1]
+    results$r_squared[i] = summary(fit)$r.squared[1]
+    results$p_value[i]   = p_val
+    
+  }
+  return(results)
+  
+}
+  
+```
+
+Now the function `simulation_1` can be utilized to carry out the 6 different combinations of models for this study.  First, the sample size and number of iterations are defined.  Next the significant models are simulated and then finally the non-significant models are simulated.  The beta parameters for both significant and non-significant models are passed into each function as arguments.  
+
+```{r}
+# Function arguments
+sample_size = 25
+iterations = 2000
+
+# Significant models
+b0 = 3
+b1 = b2 = b3 = 1
+
+sig_1 =  simulation_1(data = sim1_data, beta_0 = b0, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                      sigma = 1, sample_size = sample_size, iterations = iterations, 
+                      model_name = 'Significant')
+
+sig_5 =  simulation_1(data = sim1_data, beta_0 = b0, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                      sigma = 5, sample_size = sample_size, iterations = iterations, 
+                      model_name = 'Significant')
+
+sig_10 = simulation_1(data = sim1_data, beta_0 = b0, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                      sigma = 10, sample_size = sample_size, iterations = iterations, 
+                      model_name = 'Significant')
+
+
+# Non-significant models
+b0 = 3
+b1 = b2 = b3 = 0
+
+non_sig_1 =  simulation_1(data = sim1_data, beta_0 = 3, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                          sigma = 1, sample_size = sample_size, iterations = iterations,
+                          model_name = 'Non-Significant')
+
+non_sig_5 =  simulation_1(data = sim1_data, beta_0 = 3, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                          sigma = 5, sample_size = sample_size, iterations = iterations,
+                          model_name = 'Non-Significant')
+
+non_sig_10 = simulation_1(data = sim1_data, beta_0 = 3, beta_1 = b1, beta_2 = b2, beta_3 = b3,
+                          sigma = 10, sample_size = sample_size, iterations = iterations,
+                          model_name = 'Non-Significant')
+
+```
+
+
+After the results of the 6 different simulations produced, they are combined into one data set for analysis.  
+
+
+```{r}
+# Bind results of each simulation into one data frame
+sim1_study = sig_1 %>% 
+  bind_rows(sig_5) %>% 
+  bind_rows(sig_10) %>% 
+  bind_rows(non_sig_1) %>% 
+  bind_rows(non_sig_5) %>% 
+  bind_rows(non_sig_10)
+
+```
+
+
+
+
+### Visuals Non-Significant Models
+
+The next 3 sections contain code blocks for producing visualizations for the $F$-Statistic distribution, $p$-value and $R^2$ for the non-significant models.  
+
+#### F-Statistic Distribution
+
+
+```{r f stat dist}
+library(patchwork)
+library(latex2exp)
+
+# plot distributions of the F-statistic for non-significant models
+n = 2000
+p = 4
+
+# non-significant model and sigma  = 1
+df_ns1 = sim1_study %>% 
+  filter(model_type == 'Non-Significant',
+         sigma == 1)
+
+p_ns1 = ggplot(df_ns1, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+# non-significant model and sigma  = 5
+df_ns5 = sim1_study %>% 
+  filter(model_type == 'Non-Significant',
+         sigma == 5)
+
+p_ns5 = ggplot(df_ns5, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# non-significant model and sigma  = 10
+df_ns10 = sim1_study %>% 
+  filter(model_type == 'Non-Significant',
+         sigma == 10)
+
+p_ns10 = ggplot(df_ns10, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+
+# put the 3 non-significant plots into one horizontal plot
+p_ns = p_ns1 + p_ns5 + p_ns10
+p_ns_fdist = p_ns + plot_annotation(title = TeX(r'(Distribution of F-Statistic (Non-Significant Models))'))
+
+```
+
+#### p-value Distribution
+
+```{r ns p-val}
+
+# Non-significant p-value, sigma = 1
+p_ns1_pval = ggplot(df_ns1, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+# Non-significant p-value, sigma = 5
+p_ns5_pval = ggplot(df_ns5, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# Non-significant p-value, sigma = 10
+p_ns10_pval = ggplot(df_ns10, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+# Combine 3 individual plots into a horizontal plot
+p_ns_pval = p_ns1_pval + p_ns5_pval + p_ns10_pval
+p_ns_pval = p_ns_pval + plot_annotation(title=  TeX(r'(Distribution of $p$-values (Non-Significant Models))'))
+
+```
+
+#### R-squared distribution
+
+```{r r_square dist}
+
+# Non-significant r-squared, sigma = 1
+p_ns1_rsqre = ggplot(df_ns1, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+# Non-significant r-squared, sigma = 5
+p_ns5_rsqre = ggplot(df_ns5, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# Non-significant r-squared, sigma = 10
+p_ns10_rsqre = ggplot(df_ns10, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+# Combine 3 individual plots into a horizontal plot
+p_ns_rsqre = p_ns1_rsqre + p_ns5_rsqre + p_ns10_rsqre
+p_ns_rsqre = p_ns_rsqre + plot_annotation(TeX(r'(Distribution of $R^2$ (Non-Significant Models))'))
+
+
+```
+
+
+
+### Visuals Significant Models
+
+Similar to the 3 preceding code blocks, the following 3 sections contain code blocks for producing visualizations for the $F$-Statistic distribution, $p$-value and $R^2$ for the significant models. 
+
+
+#### F-Statistic Distribution
+
+```{r}
+
+# significant model and F-statistic, sigma  = 1
+df_s1 = sim1_study %>% 
+  filter(model_type == 'Significant',
+         sigma == 1)
+
+p_s1 = ggplot(df_s1, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  #annotate('text', x = max(df_s1$f_stat) * 0.75, y = 0.2, label = 'Significant Model\nSigma = 1', size = 6) +
+  scale_x_continuous(limits = c(0,152)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+
+# significant model and F-statistic, sigma  = 5
+df_s5 = sim1_study %>% 
+  filter(model_type == 'Significant',
+         sigma == 5)
+
+p_s5 = ggplot(df_s5, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  #annotate('text', x = max(df_s5$f_stat) * 0.75, y = 0.55, label = 'Significant Model\nSigma = 5', size = 6) +
+  #scale_x_continuous(limits = c(0,152)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# significant model and F-statistic, sigma  = 10
+df_s10 = sim1_study %>% 
+  filter(model_type == 'Significant',
+         sigma == 10)
+
+p_s10 = ggplot(df_s10, aes(x = f_stat)) +
+  geom_histogram(aes(y = ..density..),  fill = "#d95f02", color = "#d95f02", alpha = 0.5) +
+  geom_function(fun = 'df', geom = 'line', size = 1, args = list(df1 = p - 1, df2 = n - p)) +
+  #annotate('text', x = max(df_s10$f_stat) * 0.75, y = 0.55, label = 'Significant Model\nSigma = 10', size = 6) +
+  #scale_x_continuous(limits = c(0,152)) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+# Combine 3 individual plots into a horizontal plot
+p_s = p_s1 + p_s5 + p_s10
+p_s_fdist = p_s + plot_annotation(title = 'Distribution of F-Statistic (Significant Models)')
+
+```
+
+
+#### p-value Distribution
+
+```{r sig pval}
+
+# significant model and p-value, sigma  = 1
+p_s1_pval = ggplot(df_s1, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+# significant model and p-value, sigma  = 5
+p_s5_pval = ggplot(df_s5, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# significant model and p-value, sigma  = 10
+p_s10_pval = ggplot(df_s10, aes(x = p_value)) +
+  geom_histogram(aes(y = ..density..),  fill = "#66c2a5", color = "#66c2a5", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+# Combine 3 individual plots into a horizontal plot
+p_s_pval = p_s1_pval + p_s5_pval + p_s10_pval
+p_s_pval = p_s_pval + plot_annotation('Distribution of p-values (Significant Models)')
+
+```
+
+#### R-squared distribution
+
+```{r sig r_squared}
+
+# Non-significant r-squared, sigma = 1
+p_s1_rsqre = ggplot(df_s1, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 1)'))
+
+# Non-significant r-squared, sigma = 5
+p_s5_rsqre = ggplot(df_s5, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 5)'))
+
+# Non-significant r-squared, sigma = 10
+p_s10_rsqre = ggplot(df_s10, aes(x = r_squared)) +
+  geom_histogram(aes(y = ..density..),  fill = "#e78ac3", color = "#e78ac3", alpha = 0.5) +
+  theme_bw() +
+  labs(x = NULL,
+       y = NULL,
+       title = TeX(r'($\sigma$ = 10)'))
+
+# Combine 3 individual plots into a horizontal plot
+p_s_rsqre = p_s1_rsqre + p_s5_rsqre + p_s10_rsqre
+p_s_rsqre = p_s_rsqre + plot_annotation(title = TeX(r'(Distribution of $R^2$ (Significant Models))'))
+
+#rm(list = ls())
+```
+
+
+## Results
+
+### F-Distribution
+
+First, the distributions of the $F$-Statistic for both the non-significant and significant models are presented to visualize the relationship between the $F$-distribution and changes in the level of $\sigma$.  
+
+```{r echo=FALSE}
+p_ns_fdist
+p_s_fdist
+
+```
+
+### p-value Distribution
+
+Second, a visualization of the distribution of the $p$-value of the $F$-statistic and how that distribution changes as $\sigma$ changes and also the difference in non-significant and significant models.  
+
+```{r echo=FALSE}
+p_ns_pval
+p_s_pval
+
+
+```
+
+
+### R-squared Distribution
+
+Lastly, visuals of the distribution of $R^2$ as they relate to changes in $\sigma$ and changes in the model type.  
+
+
+```{r echo=FALSE}
+p_ns_rsqre
+p_s_rsqre
+
+```
+
+
+## Discussion
+
+A theme among the results of this simulation is that as the value of $\sigma$ becomes lower for the significant models, the performance of the significant models  move away from what we would expect under the null model and towards a more significant model. 
+
+The non-significant model in this exercise can be thought of as the Null model in a formal hypothesis test since the only non-zero $\beta$ is the intercept term (value of 3).  Essentially the non-significant model is modeling noise that is centered around 3 and has varying values of $\sigma^2$.  The distributions of the simulations for the $F$-distribution and the $p$-value of the $F$-distribution for the non-significant model very closely approximate the distributions of these statistics under the Null hypothesis.  The F-distribution of the simulation (orange) very nearly lines up with the theoretical $F$-distribution (black line) that we would observe under the null hypothesis.  Likewise, the $p$-value under the Null hypothesis has a uniform distribution and the observed distribution of the $p$-values for the non-significant models very closely resembles the uniform distribution.   The distributions of $R^2$ for the non-significant models are centered around 0.1 with a right skew.  The distribution of the $R^2$ for the non-significant model is what you would expect for a Null model that has a relatively low ability to explain the variability of the reponse variable.  
+
+The results of the significant models show the influence of the changes in $\sigma$ and model performance.  As the value of $\sigma$ becomes lower, the performance of the model becomes more statistically significant.  This visually becomes easy to see for the $F$-distribution where a significant model with a $\sigma$ = 10 still somewhat resembles the $F$-distribution under the Null hypothesis but as $\sigma$ changes from 10 to 5 and then finally to 1, we can see that the distribution of the $F$-statistic for the significant model with a $\sigma$ = 1 becomes visually different than the theoretical $F$-distribution.  A similar trend is also seen for the distribution of the $p$-value of the $F$-statistic.  For a $\sigma$ = 10, the significant model does somewhat resemble a slightly skewed uniform distribution.  As $\sigma$ becomes closer to 1, the distribution of the $p$-values becomes heavily skewed and the overall distribution approaches 0.  Since the $F$-statistic and $p$-value distributions imply that the significant model with a $\sigma$ = 1 is likely a statistically significant model, it is not surprising to see that the distribution of $R^2$ for this model centers around 0.85 and implies that this model has a lot of ability to account for the variance of the response variable. 
+
+```{r clear memory, echo=FALSE}
+rm(list = ls())
+```
+
+***

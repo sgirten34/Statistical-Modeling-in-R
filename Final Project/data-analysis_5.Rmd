@@ -1,0 +1,690 @@
+---
+title: "Life Expectancy Data Analysis"
+author: "STAT 420, Summer 2023, Maxim Aldaranov, Alice Fu, Scott Girten"
+date: '08/04/23'
+output:
+  html_document: 
+    theme: readable
+    toc: yes
+    toc_float: true
+    toc_depth: 4
+  pdf_document: default
+urlcolor: cyan
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+options(scipen = 1, digits = 4, width = 80, fig.align = "center")
+```
+
+```{r libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(ggplot2)
+library(GGally)
+library(patchwork)
+library(readr)
+library(tidyverse)
+library(lmtest)
+library(kableExtra)
+```
+
+```{r helper functions, include=FALSE}
+calc_percent_err = function(model, tst_data){
+  actual = tst_data$Life_expectancy
+  predicted = predict(model, newdata = tst_data)
+  mean((abs(actual - predicted)/actual))
+}
+
+high_vif = function(model){
+  vif_vals = faraway::vif(model)
+  vif_vals[vif_vals > 5]
+}
+
+calc_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+
+influential_proportion = function(model){
+  mean(cooks.distance(model) > 4 / length(resid(model)))
+}
+
+rmse = function(actual, predicted){
+  sqrt(mean((actual - predicted)^2))
+}
+
+outlier_proportion = function(model){
+  mean(abs(rstandard(model)) > 2)
+}
+```
+
+```{r diagnostics function, include=FALSE}
+
+diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', title = 'title', model_type = 'Model A'){
+  
+  # Create individual diagnostic components
+  
+  # Fitted vs Residuals plot
+  p1 = ggplot(model, aes(x = .fitted, y = .resid)) +
+    geom_point(color = pcol) +
+    geom_hline(yintercept = 0, color = lcol, size = 2) +
+    theme_minimal() +
+    labs(x = 'Fitted',
+         y = 'Residuals',
+         title = str_c(model_type, ' Fitted vs. Residuals Plot'))
+
+  # Normal Q-Q Plot
+  p2 = ggplot(model, aes(sample = .resid)) +
+    geom_qq(color = pcol) +
+    geom_qq_line(color = lcol, size = 2) +
+    theme_minimal() +
+    labs(x = 'Theoretical Quartiles',
+         y = 'Sample Quartiles',
+         title = 'Normal Q-Q Plot')
+  
+  # Combine plots side by side
+  p_final = p1 + p2
+  p_final = p_final + plot_annotation(title = title)
+}
+```
+
+```{r color palette, include=FALSE}
+green_dark = '#66c2a5'
+orange = '#fc8d62'
+purple = '#8da0cb'
+pink = '#e78ac3'
+green_light = '#a6d854'
+
+```
+
+# Introduction
+
+The purpose of this analysis is to understand which factors are prominent in affecting global life expectancy. In an attempt to quantify these affects, we will fit a model that predicts the average life expectancy based on a variety of socioeconomic and healthcare-related factors. The appropriate data was found to be analyzed. Different statistical methods will be applied to the data in order to reach the best model for the given purpose. It will allow us to determine interactions between the average life expectancy and the various factors affecting it, hence, helping us to determine the variables that accurately predict the average life expectancy.
+
+***
+
+## Dataset Information
+
+The data represents the research on the average life expectancy in 178 countries over a 15-year period (2000-2015) from the World Health Organization. It includes economic, social and healthcare related factors affecting the average life expectancy. The data contains `21` variables and `2,864` observations. It was retrieved from [Kaggle](https://www.kaggle.com/datasets/lashagoch/life-expectancy-who-updated).
+
+- `Country` - country of the sample
+- `Region` - region of the sample
+- `Year` - year of the sample
+- `infant_deaths` - the number of infant deaths per 1000 people
+- `Under_five_deaths` - the number of deaths of people under 5 years old per 1000 people
+- `Adult_mortality` - the number of deaths per 1000 people between the ages of 15 years of age to 60 years of age
+- `Alcohol_consumption` - alcohol consumption that is recorded in liters of pure alcohol per capita with 15+ years old
+- `Hepatitis_B` - % of coverage of Hepatitis B (HepB3) immunization among 1-year-olds
+- `Measles` - % of coverage of Measles containing vaccine first dose (MCV1) immunization among 1-year-olds
+- `BMI` - measure of nutritional status in adults. It is defined as a person's weight in kilograms divided by the square of that person's height in meters (kg/m2)
+- `Polio` - % of 1-year-olds immunized against polio
+- `Diphtheria` - % of of 1-year-olds who were immunized against diphtheria
+- `Incidents_HIV` - the number of deaths caused by AIDS of the last 4-year-olds who were born alive per 1000 people
+- `GDP_per_capita` - gross domestic product per capita
+- `Population_min` - total population in millions
+- `Thinness_ten_nineteen_years` - prevalence of thinness among adolescents aged 10-19 years. BMI < -2 standard deviations below the median.
+- `Thinness_five_nine_years` - prevalence of thinness among children aged 5-9 years. BMI < -2 standard deviations below the median.
+- `Schooling` - average years that people aged 25+ spent in formal education
+- `Economy_status_Developed` - developed country or not
+- `Economy_status_Developing` - developing country or not
+- `Life_expectancy` - average life expectancy of both genders in different years from 2010 to 2015
+
+***
+
+# Methods 
+
+## Data Cleaning
+
+Before we begin the analysis, we performed basic data cleaning on the modeling data set. After the data is read in we checked for `NULL` values in the data and looked at the top 10 rows of the data set to have a better understanding of the data in each column.   
+
+```{r read data and check nulls}
+data_raw = read.csv("Life-Expectancy-Data-Updated.csv")
+ifelse(sum(is.na(data_raw)) == 0, "The data is complete", "The data is incomplete")
+```
+
+```{r data-head}
+slice_head(data_raw, n = 10) %>% 
+  kbl() %>% 
+  kable_styling() %>% 
+  scroll_box(width = "100%")
+```
+
+The variables `Economy_status_Developed` and `Economy_status_Developing` variables are redundant - the columns represent the same binary data coded in opposite fashion. We decided to keep `Economy_status_Developed` and for convenience will rename this column `Developed` for use in our analysis.  
+
+```{r}
+data = subset(data_raw, select = -c(Economy_status_Developing))
+names(data)[names(data) == 'Economy_status_Developed'] = 'Developed'
+```
+
+Our primary interest in this analysis is to predict global life expectancy and Country or Regional differences would be beyond the scope of this analysis. Since we are limiting the analysis to global life expectancy, we will remove the variables `Country` and `Region` from the data set for the rest of the analysis.   
+
+```{r}
+data = subset(data, select = -c(Country, Region))
+```
+
+After reviewing the data, we think it is appropriate to consider `Developed` and `Year` as factors and we have converted these columns from numeric to factor data types.  
+
+```{r}
+data$Developed = as.factor(data$Developed)
+data$Year = as.factor(data$Year)
+```
+
+## Transformations
+
+```{r cor-matrix, fig.height=15, fig.width=15, message=FALSE}
+theme_set(theme_minimal())
+#p_corr = ggpairs(subset(data, select = -c(Year, Developed)), aes(color = orange, fill = orange, alpha = 0.5))
+#p_corr
+```
+
+We continued preparing our data set by looking for variables having a non-linear relationship with our response variable `Life_expectancy`. We created a correlation matrix of all predictors and the response to visually understand the relationships in our data.However one variable in particular `GDP_per_capita` stood out as having a non-linear relationship with `Life-expectancy`.  We feel `GDP_per_capita` could benefit from a log transformation in our modeling process. Below is a plot of `Life_expectancy` vs. `GDP_per_capita` highlighting this relationship. 
+
+```{r life vs gdp}
+p = ggplot(data, aes(x = GDP_per_capita, y = Life_expectancy, color = orange, fill = orange, alpha = 0.2)) + 
+  geom_point() +
+  theme_minimal() +
+  theme(legend.position = 'none') + 
+  labs(x = 'GDP per Capita',
+       y = 'Life Expectancy',
+       title = 'Life Expectancy vs. GDP per Capita')
+p
+```
+
+```{r remove-1, eval=FALSE, message=FALSE, include=FALSE}
+# just using this for closer looks at the pairs
+
+# ggpairs(subset(data, select = c(Life_expectancy, Infant_deaths, Under_five_deaths, Adult_mortality)))
+
+# ggpairs(subset(data, select = c(Life_expectancy, Hepatitis_B, Measles, Polio, Diphtheria)))
+
+# ggpairs(subset(data, select = c(Life_expectancy, Incidents_HIV, Population_mln, Schooling, GDP_per_capita)))
+```
+
+```{r transformation, include=FALSE}
+pairs_data = data.frame(Life_expectancy = data$Life_expectancy, GDP_per_capita = data$GDP_per_capita, log_GDP= log(data$GDP_per_capita), log2_GDP = log(log(data$GDP_per_capita)))
+
+transform_GDP = ggpairs(pairs_data) 
+
+
+pairs_data = data.frame(subset(data, select = c(Life_expectancy, Hepatitis_B)), log_Hepatitis_B = log(data$Hepatitis_B), poly_Hepatits_B = poly(data$Hepatitis_B, 2))
+
+transform_HepB = ggpairs(pairs_data) 
+
+
+pairs_data = data.frame(subset(data, select = c(Life_expectancy, Diphtheria)), log_Diphtheria = log(data$Diphtheria), poly_Diphtheria = poly(data$Diphtheria, 2))
+
+transform_Diph = ggpairs(pairs_data)
+
+
+pairs_data = data.frame(subset(data, select = c(Life_expectancy, Schooling)), log_ = log(data$Schooling), poly_ = poly(data$Schooling, 2))
+
+transform_Schooling = ggpairs(pairs_data) 
+
+
+pairs_data = data.frame(subset(data, select = c(Life_expectancy, Incidents_HIV)), log_ = log(data$Incidents_HIV), poly_ = poly(data$Incidents_HIV, 2))
+
+transform_hiv = ggpairs(pairs_data) 
+
+
+pairs_data = data.frame(subset(data, select = c(Life_expectancy, Under_five_deaths)), log_ = log(data$Under_five_deaths), poly_ = poly(data$Under_five_deaths, 2))
+
+transform_under5 = ggpairs(pairs_data)
+```
+
+```{r transform-plots, message=FALSE, include=FALSE}
+transform_GDP # log2 > log >> x, only minor improvement from log to log2
+
+# transform_HepB  # no improvements
+
+# transform_Diph # no improvements
+
+# transform_Schooling # no improvements
+
+# transform_hiv # slight improvement with log?
+
+transform_under5 # no improvements?
+
+```
+
+## Train and Test Data Separation
+
+Splitting our data set into training (70%) and testing (30%) data sets for use in the analysis.   
+
+```{r ttsplit}
+set.seed(42)
+sample = sample(c(TRUE, FALSE), nrow(data), replace=TRUE, prob=c(0.7,0.3))
+data_trn = data[sample, ]
+data_tst = data[!sample, ]
+```
+
+## Modeling
+
+### Additive Model
+
+Our first model is an additive model of all of the predictor variables in our data set. After fitting the model we looked at variables with a VIF greater than 5 to identify any variables that may be co-linear.  
+
+```{r add_mod}
+add_mod_full = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita), data = data_trn)
+add_len = length(coef(add_mod_full))
+
+vif = faraway::vif(add_mod_full)
+vif = vif[vif > 5]
+vif_table = tibble(Predictor = names(vif),
+                   VIF = vif)
+
+vif_table %>% 
+  kbl(caption = 'Predictors with VIF > 5') %>% 
+  kable_styling()
+```
+
+### Variance Inflation Factor
+
+For the variables with a high VIF (> 5), we calculated the partial correlation coefficient to determine if the predictor variable is correlated to the response variable and if so then remove the variable from our analysis.  Ultimately this process will remove the following variables:  
+- `Under_five_deaths`  
+- `Diphtheria`  
+- `Thinness_ten_nineteen_years`  
+
+```{r collinearity reduction}
+# initial full additive model
+m1 = add_mod_full
+
+# --- iteration 1 --- #
+
+# check for high inflation factor variables
+high_vif(m1) # Under_five_death has the highest vif
+
+# check if Under_five_deaths is a useful predictor
+m_under5 = lm(Under_five_deaths ~ . - GDP_per_capita + log(GDP_per_capita) - Life_expectancy, data = data_trn)
+m_wo_under5 = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths, data = data_trn)
+cor = (cor1 = cor(resid(m_under5), resid(m_wo_under5))) # -0.2727 (low)
+
+# remove Under_five_deaths
+m1 = m_wo_under5
+
+
+# --- iteration 2 --- #
+
+# check for high inflation factor variables
+high_vif(m1) # Diphtheria has the highest vif
+
+# check if Diphtheria is a useful predictor
+m_diph = lm(Diphtheria ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Life_expectancy, data = data_trn)
+m_wo_dipth = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria, data = data_trn)
+cor = (cor1 = cor(resid(m_diph), resid(m_wo_dipth))) # -0.03076 (low)
+
+# remove Diphtheria
+m1 = m_wo_dipth
+
+
+# --- iteration 3 --- #
+
+# check for high inflation factor variables
+high_vif(m1) # Thinness_ten_nineteen_years has the highest vif
+
+# Check if Thinness_ten_nineteen_years is a useful predictor
+m_thin1019 = lm(Thinness_ten_nineteen_years ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Life_expectancy, data = data_trn)
+m_wo_thin1019 = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years, data = data_trn)
+cor = (cor1 = cor(resid(m_thin1019), resid(m_wo_thin1019))) # -0.02997 (low)
+
+# remove Thinness_ten_nineteen_years
+m1 = m_wo_thin1019
+
+
+# --- iteration 4 --- #
+
+# check for high inflation factor variables
+high_vif(m1) # Infant_deaths has the highest vif
+
+# Check if Infant_deaths is a useful predictor
+m_infant = lm(Infant_deaths ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years - Life_expectancy, data = data_trn)
+m_wo_infant = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years - Infant_deaths, data = data_trn)
+cor = (cor1 = cor(resid(m_infant), resid(m_wo_infant))) # -0.6504 (high)
+
+# keep Infant_deaths
+m1 = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years, data = data_trn)
+
+
+# --- iteration 5 --- #
+
+# check for high inflation factor variables
+high_vif(m1) # Adult_mortality has the highest vif
+
+# Check if Adult_mortality is a useful predictor
+m_adult = lm(Adult_mortality ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years - Life_expectancy, data = data_trn)
+m_wo_adult = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years - Adult_mortality, data = data_trn)
+cor = (cor1 = cor(resid(m_adult), resid(m_wo_adult))) # -0.826 (high)
+
+# keep Adult_mortality
+m1 = lm(Life_expectancy ~ . - GDP_per_capita + log(GDP_per_capita) - Under_five_deaths - Diphtheria - Thinness_ten_nineteen_years, data = data_trn)
+
+
+# --- Final Model --- #
+# summary(m1)
+add_mod_small = m1
+```
+
+### Backward AIC
+
+Our next step in our model building process was to take our initial additive model and perform step-wise backward selection using AIC. 
+
+```{r back-aic}
+add_back_aic_mod = step(add_mod_small, direction = "backward", trace = FALSE)
+# summary(add_back_aic_mod)
+aic_len = length(coef(add_back_aic_mod)) # 11
+```
+
+### Backward BIC
+
+Finally, we fitted a model using the initial additive model and performed step-wise backward selection using BIC. 
+
+```{r back-bic}
+n = length(resid(add_mod_small))
+add_back_bic_mod = step(add_mod_small, direction = "backward", trace = FALSE, k = log(n))
+bic_len = length(coef(add_back_bic_mod)) # 10 predictors
+```
+
+
+## Model Comparison
+
+Our model building process resulted in three models: `Additive Model`, `AIC Model`, and `BIC Model`. To determine which model is the preferred model, we first checked if these models passed the linear model assumptions.
+
+### Model Assumptions
+First, we did a visual inspection of Fitted versus Residuals plots and Q-Q Plots.
+```{r diagnostic plots}
+# Individual diagnostic plots
+p_diag_add = diagnostics(add_mod_small, pcol = green_light, lcol = pink, title = "Additive Model", model_type = 'Additive Model')
+p_diag_aic = diagnostics(add_back_aic_mod, pcol = purple, lcol = pink, title = "AIC Model", model_type = 'AIC Model')
+p_diag_bic = diagnostics(add_back_bic_mod, pcol = green_dark, lcol = pink, title = "BIC Model", model_type = 'BIC Model')
+
+# Combined diagnostic plots
+p_combined = (p_diag_add / p_diag_aic / p_diag_bic)
+p_combined = p_combined + plot_annotation(title = "Comparison of Diagnostic Plots for Each Model") & theme(plot.title = element_text(size = 24))
+
+```
+
+For formal testings, we did Breusch-Pagan test to check for homoscedasticity and Shapiro-Wilk test to check for normality.
+```{r BP and Shapiro Table}
+# BP test
+bp_results = c(
+  bptest(add_mod_small)$p.value[[1]],
+  bptest(add_back_aic_mod)$p.value[[1]],
+  bptest(add_back_bic_mod)$p.value[[1]] # e-31
+)
+
+# Shapiro test
+shapiro_results = c(
+  shapiro.test(add_mod_small$residuals)$p.value,
+  shapiro.test(add_back_aic_mod$residuals)$p.value,
+  shapiro.test(add_back_bic_mod$residuals)$p.value # 0.0026
+)
+
+bp_shap_table = tibble(Model = c('Additive Model', 'AIC Model', 'BIC Model'),
+                       `BP Test p-value` = format(bp_results, scientific = TRUE, big.mark = ","),
+                       `Shapiro-Wilk Test p-value` = shapiro_results)
+```
+
+
+### Unusual Observations
+
+We checked to see if there is a high proportion of unusual observations in the data by calculating the proportion of outliers and the proportion of influential observations.
+```{r unusual-obs}
+# rstandard
+outlier_small = outlier_proportion(add_mod_small) # 0.04348
+outlier_aic = outlier_proportion(add_back_aic_mod) #  0.04448
+outlier_bic = outlier_proportion(add_back_bic_mod) # 0.04698
+
+# Influence
+influential_small = influential_proportion(add_mod_small) # 0.06097
+influential_aic = influential_proportion(add_back_aic_mod) # 0.07046
+influential_bic = influential_proportion(add_back_bic_mod) # 0.06897
+
+# Table for display
+outlier_table = tibble(Model = c('Additive Model', 'AIC Model', 'BIC Model'),
+                       `Standardized Residuals` = c(outlier_small, outlier_aic, outlier_bic),
+                       `Influential Observations` = c(influential_small, influential_aic, influential_bic))
+
+```
+
+There appears to be greater than 5% of influential observations. When we examine the data more closely, we did not find any obvious issues and therefore chose not to remove any observations.
+
+```{r unusual-head}
+slice_head(data_trn[cooks.distance(add_back_bic_mod) > 4 / length(resid(add_back_bic_mod)), ], n = 10) %>% 
+  kbl() %>% 
+  kable_styling() %>% 
+  scroll_box(width = "100%")
+```
+
+
+### Quality Criterion
+
+To compare the models, we calculated for the AIC, BIC, and Adjusted $R^2$. We also checked for over-fitting by calculating for the $RMSE_{LOOCV}$
+
+```{r Model performance comparison}
+# Training comparison for all models
+# AIC
+aics = c(
+  AIC(add_mod_small),
+  AIC(add_back_aic_mod), 
+  AIC(add_back_bic_mod) 
+)
+
+# BIC
+bics = c(
+  BIC(add_mod_small), 
+  BIC(add_back_aic_mod), 
+  BIC(add_back_bic_mod) 
+)
+
+# AdjR2 
+adjR2s = c(
+  summary(add_mod_small)$adj, 
+  summary(add_back_aic_mod)$adj, 
+  summary(add_back_bic_mod)$adj 
+)
+
+# LOOCV RMSE
+loocv_rmses = c(
+  calc_loocv_rmse(add_mod_small), # 1.367
+  calc_loocv_rmse(add_back_aic_mod), ## 1.362
+  calc_loocv_rmse(add_back_bic_mod) # 1.364
+)
+
+trn_comp = tibble(Model = c('Additive Model', 'AIC Model', 'BIC Model'),
+                  `Number of Predictors` = c(add_len, aic_len, bic_len),
+                  AIC = aics,
+                  BIC = bics,
+                  `Adjusted R^2` = adjR2s,
+                  `LOOCV RMSE` = loocv_rmses)
+
+```
+
+
+### Model Evaluation
+
+We evaluated the models by calculated for the RMSE using reserved test data `data_tst`.
+
+```{r training and testing rmse}
+# Training and testing comparison for all models
+# Train/Test RMSE
+train_error = c(
+  rmse(data_trn$Life_expectancy, predict(add_mod_small, data_trn)),
+  rmse(data_trn$Life_expectancy, predict(add_back_aic_mod, data_trn)),
+  rmse(data_trn$Life_expectancy, predict(add_back_bic_mod, data_trn))
+)
+
+test_error = c(
+  rmse(data_tst$Life_expectancy, predict(add_mod_small, data_tst)),
+  rmse(data_tst$Life_expectancy, predict(add_back_aic_mod, data_tst)),
+  rmse(data_tst$Life_expectancy, predict(add_back_bic_mod, data_tst))
+)
+
+trn_tst_comp = tibble(Model = c('Additive Model', 'AIC Model', 'BIC Model'),
+                      `Training RMSE` = train_error,
+                      `Testing RMSE` = test_error)
+
+```
+
+
+To evaluate how well our models are at predicting, we calculated for the average percent error using the 
+test data `data_tst`
+
+```{r percent-error, message=FALSE, warning=FALSE}
+avg_percent_errs = c(
+  calc_percent_err(add_mod_small, data_tst),
+  calc_percent_err(add_back_aic_mod, data_tst),
+  calc_percent_err(add_back_bic_mod, data_tst)
+)
+
+avg_percent_errs = scales::percent(avg_percent_errs, 0.01)
+
+pct_err = tibble(Model = c('Additive Model', 'AIC Model', 'BIC Model'),
+                 `Percent Error` = avg_percent_errs)
+
+trn_tst_table = trn_tst_comp %>% 
+  left_join(pct_err, by = "Model")
+```
+
+***
+
+```{r echo=FALSE}
+mod_names = names(coef(add_back_bic_mod))
+
+df_name = tibble(coef = mod_names,
+                 beta = round(coef(add_back_bic_mod), digits = 4))
+
+df_name2 = df_name %>%
+  mutate(coef = str_replace_all(coef, "[(|)]", "")) %>% 
+  mutate(display = 
+           case_when(
+             coef == '(Intercept)' ~ 'Intercept',
+             TRUE ~ coef
+  )) %>% 
+  mutate(display2 = str_c(beta, "(", display, ")"))
+
+
+mod_display = str_c(df_name2$display2, collapse = " + ")
+mod_display2 = str_c("Life Expectancy = ", mod_display)
+
+```
+
+
+# Results
+
+
+
+```{r echo=FALSE}
+metrics_table = trn_comp %>% 
+  left_join(bp_shap_table, by = "Model") %>% 
+  left_join(outlier_table, by = "Model")
+
+metrics_table %>% 
+  kbl(caption = 'Model Comparison from Training') %>% 
+  kable_styling()
+```
+
+
+```{r additive-diagnostic-plots, echo=FALSE, message=FALSE, fig.width=15, fig.height=15}
+p_combined
+```
+
+
+
+
+```{r echo=FALSE}
+trn_tst_table %>% 
+  kbl(caption = 'Training and Testing Comparison') %>% 
+  kable_styling()
+```
+
+
+
+$$
+\textbf{Life Expectancy} = 81.2124(Intercept) + -0.1245(Infant Deaths) + -0.0491(Adult Mortality) + \\ 0.0437(Alcohol Consumption) + -0.012(Hepatitis B) +
+-0.1677(BMI) + 0.0114(Polio) + \\ 0.0675(Incidents HIV) + 0.1317(Schooling) + 0.5052(Developed) + 0.4398(log(GDP per Capita))
+$$
+
+
+***
+
+# Discussion
+
+-
+
+***
+
+# Appendix
+
+### Libraries Used in the Analysis
+
+```{r app-libraries, message=FALSE, warning=FALSE, eval=FALSE}
+library(ggplot2)
+library(GGally)
+library(patchwork)
+library(readr)
+library(tidyverse)
+library(lmtest)
+library(kableExtra)
+```
+
+
+### Helper Functions
+
+```{r app-helper-functions, eval=FALSE}
+calc_percent_err = function(model, tst_data){
+  actual = tst_data$Life_expectancy
+  predicted = predict(model, newdata = tst_data)
+  mean((abs(actual - predicted)/actual)) * 100
+}
+
+high_vif = function(model){
+  vif_vals = faraway::vif(model)
+  vif_vals[vif_vals > 5]
+}
+
+calc_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+
+influential_proportion = function(model){
+  mean(cooks.distance(model) > 4 / length(resid(model)))
+}
+
+rmse = function(actual, predicted){
+  sqrt(mean((actual - predicted)^2))
+}
+
+outlier_proportion = function(model){
+  mean(abs(rstandard(model)) > 2)
+}
+```
+
+### Diagnostic Functions
+
+```{r app-diagnostics-function, eval=FALSE}
+
+diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', title = 'title', model_type = 'Model A'){
+  
+  # Create individual diagnostic components
+  
+  # Fitted vs Residuals plot
+  p1 = ggplot(model, aes(x = .fitted, y = .resid)) +
+    geom_point(color = pcol) +
+    geom_hline(yintercept = 0, color = lcol, size = 2) +
+    theme_minimal() +
+    labs(x = 'Fitted',
+         y = 'Residuals',
+         title = str_c(model_type, ' Fitted vs. Residuals Plot'))
+
+  # Normal Q-Q Plot
+  p2 = ggplot(model, aes(sample = .resid)) +
+    geom_qq(color = pcol) +
+    geom_qq_line(color = lcol, size = 2) +
+    theme_minimal() +
+    labs(x = 'Theoretical Quartiles',
+         y = 'Sample Quartiles',
+         title = 'Normal Q-Q Plot')
+  
+  # Combine plots side by side
+  p_final = p1 + p2
+  p_final = p_final + plot_annotation(title = title)
+}
+```
+
+Analysis written by Maxim Aldaranov, Alice Fu, and Scott Girten

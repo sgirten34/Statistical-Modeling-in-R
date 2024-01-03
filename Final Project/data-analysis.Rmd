@@ -1,0 +1,364 @@
+---
+title: "Life Expectancy Data Analysis"
+author: "STAT 420, Summer 2023, Maxim Aldaranov, Alice Fu, Scott Girten"
+date: '08/04/23'
+output:
+  html_document: 
+    theme: readable
+    toc: yes
+  pdf_document: default
+urlcolor: cyan
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+options(scipen = 1, digits = 4, width = 80, fig.align = "center")
+```
+
+
+```{r helper-functions}
+high_vif = function(model){
+  vif_vals = faraway::vif(model)
+  vif_vals[vif_vals > 5]
+}
+
+calc_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+
+influential_proportion = function(model){
+  mean(cooks.distance(model) > 4 / length(resid(model)))
+}
+
+rmse = function(actual, predicted){
+  sqrt(mean((actual - predicted)^2))
+}
+
+outlier_proportion = function(model){
+  mean(rstandard(model)[abs(rstandard(model)) > 2])
+}
+```
+
+# Introduction
+
+## Goal
+
+Find a model that accurately predicts the average life expectancy based on various factors. The appropriate data was found to be analyzed. Different statistical methods will be applied to the data in order to reach the best model for the given purpose. It will allow us to determine interactions between the average life expectancy and the various factors affecting it, hence, helping us to determine the variables that accurately predict the average life expectancy.
+
+## Dataset Information
+
+The data represents the research on the average life expectancy in 178 countries over a 15-year period (2000-2015) from the World Health Organization. It includes economic, social and healthcare related factors affecting the average life expectancy. The data contains `21` variables and `2,864` observations. It was retrieved from [Kaggle](https://www.kaggle.com/datasets/lashagoch/life-expectancy-who-updated).
+
+- `Country` - country of the sample
+- `Region` - region of the sample
+- `Year` - year of the sample
+- `infant_deaths` - the number of infant deaths per 1000 people
+- `Under_five_deaths` - the number of deaths of people under 5 years old per 1000 people
+- `Adult_mortality` - the number of deaths per 1000 people between the ages of 15 years of age to 60 years of age
+- `Alcohol_consumption` - alcohol consumption that is recorded in liters of pure alcohol per capita with 15+ years old
+- `Hepatitis_B` - % of coverage of Hepatitis B (HepB3) immunization among 1-year-olds
+- `Measles` - % of coverage of Measles containing vaccine first dose (MCV1) immunization among 1-year-olds
+- `BMI` - measure of nutritional status in adults. It is defined as a person's weight in kilograms divided by the square of that person's height in meters (kg/m2)
+- `Polio` - % of 1-year-olds immunized against polio
+- `Diphtheria` - % of of 1-year-olds who were immunized against diphtheria
+- `Incidents_HIV` - the number of deaths caused by AIDS of the last 4-year-olds who were born alive per 1000 people
+- `GDP_per_capita` - gross domestic product per capita
+- `Population_min` - total population in millions
+- `Thinness_ten_nineteen_years` - prevalence of thinness among adolescents aged 10-19 years. BMI < -2 standard deviations below the median.
+- `Thinness_five_nine_years` - prevalence of thinness among children aged 5-9 years. BMI < -2 standard deviations below the median.
+- `Schooling` - average years that people aged 25+ spent in formal education
+- `Economy_status_Developed` - developed country or not
+- `Economy_status_Developing` - developing country or not
+- `Life_expectancy` - average life expectancy of both genders in different years from 2010 to 2015
+
+# Methods 
+
+## Data Cleaning
+
+- Read the data from the file
+
+```{r read the data}
+library(readr)
+data_raw = read.csv("Life-Expectancy-Data-Updated.csv")
+```
+
+- Check any missing data
+
+```{r check for na values}
+ifelse(sum(is.na(data_raw)) == 0, "The data is complete", "The data is incomplete")
+```
+
+- One of the `Economy_status_Developed` and `Economy_status_Developing` variables is redundant. They can be combined in one variable
+
+```{r compare economy_status variables}
+head(subset(data_raw, select = c("Economy_status_Developed", "Economy_status_Developing")), 5)
+```
+
+- We decide to keep `Economy_status_Developed` variable where the value `1` indicates a developed country and `0` indicates a country that is still developing. We also rename variable `Economy_status_Developed` to `Developed`
+
+```{r}
+data = subset(data_raw, select = -c(Economy_status_Developing))
+names(data)[names(data) == 'Economy_status_Developed'] = 'Developed'
+```
+
+- Since we are interested in a model predicting global average life expectancy in the timespan 2000-2015, we can omit the variables `Country`, `Region`, `Year`
+
+```{r}
+data = subset(data, select = -c(Country, Region)) #Year
+```
+
+- We convert *character* variable `Developed` to *factor* type in order to use it as categorical variable in the further analysis.
+
+```{r}
+data$Developed = as.factor(data$Developed)
+data$Year = as.factor(data$Year)
+```
+
+## Cleaned Data Overview
+
+- View the correlation matrix graph and table of the cleaned data
+
+```{r, eval = FALSE}
+#pdf(file = "pairs.pdf", height = 13, width = 13)
+#pairs(data)
+#dev.off
+#data_numeric = subset(data, select = -c(Developed))
+#round(cor(data_numeric), 2)
+```
+
+## Train and Test Data Separation
+
+```{r ttsplit}
+set.seed(42)
+sample = sample(c(TRUE, FALSE), nrow(data), replace=TRUE, prob=c(0.7,0.3))
+data_trn = data[sample, ]
+data_tst = data[!sample, ]
+```
+
+
+## Additive Model
+
+```{r cor1}
+add_mod_full = lm(Life_expectancy ~ ., data = data_trn)
+
+# add_vif = high_vif(add_mod_full)
+# Infant_deaths & Under_five_deaths,  Polio & Diphtheria, Thinness_ten_nineteen_years & Thinness_five_nine_years 
+
+# Infant_deaths & Under_five_deaths
+cor(data_trn$Infant_deaths, data_trn$Under_five_deaths) # 0.985966791421202
+
+infant_deaths_mod = lm(Infant_deaths ~ . - Life_expectancy, data = data_trn)
+add_mod_wo_infant = lm(Life_expectancy ~ . - Infant_deaths, data = data_trn)
+
+cor(resid(infant_deaths_mod), resid(add_mod_wo_infant)) # -0.133753434531531
+## Remove Infant_deaths
+
+
+# Thinness_five_nine_years & Thinness_ten_nineteen_years
+cor(data_trn$Thinness_five_nine_years, data_trn$Thinness_ten_nineteen_years) # 0.945819492405151
+
+thiness_5_mod = lm(Thinness_five_nine_years  ~ . - Life_expectancy - Infant_deaths, data = data_trn)
+add_mod_wo_t5 = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths, data = data_trn)
+
+cor(resid(thiness_5_mod), resid(add_mod_wo_t5)) # -0.00460377080698948
+## Remove Thinness_five_nine_years
+
+
+# Diphtheria & Polio
+cor(data_trn$Diphtheria, data_trn$Polio) # 0.950995528728945
+
+diph_mod = lm(Diphtheria ~ . - Life_expectancy - Infant_deaths - Thinness_five_nine_years, data = data_trn)
+add_mod_wo_diph = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria, data = data_trn)
+
+cor(resid(diph_mod), resid(add_mod_wo_diph)) # -0.00609861565371135
+## Remove Diphtheria
+```
+
+```{r cor2}
+add_mod_small = add_mod_wo_diph
+# high_vif(add_mod_small) # Under_five_deaths 8.05 & Adult_mortality 7.87
+
+# Under_five_deaths & Adult_mortality
+cor(data_trn$Under_five_deaths, data_trn$Adult_mortality) # 0.8033
+
+u5_mod = lm(Under_five_deaths ~ . - Life_expectancy - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria, data = data_trn)
+add_mod_wo_u5 = lm(Life_expectancy ~ . - Thinness_five_nine_years - Infant_deaths - Thinness_five_nine_years - Diphtheria - Under_five_deaths, data = data_trn)
+
+cor(resid(u5_mod), resid(add_mod_wo_u5)) #-0.6997
+## Under_five_deaths not removed
+
+length(coef(add_mod_small)) # 14
+```
+
+## Backward AIC
+```{r back-aic}
+add_back_aic_mod = step(add_mod_small, direction = "backward", trace = FALSE)
+
+# summary(add_back_aic_mod)
+length(coef(add_back_aic_mod)) # 11
+```
+
+
+## Backward BIC
+
+```{r back-bic}
+n = length(resid(add_mod_small))
+
+add_back_bic_mod = step(add_mod_small, direction = "backward", trace = FALSE, k = log(n))
+
+# summary(add_back_bic_mod)
+length(coef(add_back_bic_mod)) # 10
+
+high_vif(add_back_bic_mod) # Under_five_deaths & Adult_mortality
+```
+
+
+## Unusual Observations
+```{r unusual-obs}
+# rstandard
+outlier_proportion(add_back_aic_mod) # 0.12102
+outlier_proportion(add_back_bic_mod) # 0.11872
+
+# Influence
+influential_proportion(add_back_aic_mod) # 0.06297
+influential_proportion(add_back_bic_mod) # 0.06697
+```
+
+
+## Model Comparisons `add_mod_small`, `add_back_aic_mod`, `add_back_bic_mod`
+```{r comparisons}
+# make a function to generate a table?
+
+# AIC
+AIC(add_mod_small) # 6918
+AIC(add_back_aic_mod) ## 6914
+AIC(add_back_bic_mod) ## 6914
+
+# BIC
+BIC(add_mod_small) # 7002
+BIC(add_back_aic_mod) # 6981
+BIC(add_back_bic_mod) ## 6980
+
+# AdjR2 
+summary(add_mod_small)$adj # 0.9792
+summary(add_back_aic_mod)$adj ## 0.9793
+summary(add_back_bic_mod)$adj # 0.9792
+
+# LOOCV RMSE
+calc_loocv_rmse(add_mod_small) # 1.363
+calc_loocv_rmse(add_back_aic_mod) ## 1.362
+calc_loocv_rmse(add_back_bic_mod) # 1.364
+
+## AIC model has lowest AIC and LOOCV RMSE and highest AdjR2 but all of them are pretty close
+```
+
+```{r}
+# Train/Test RMSE
+train_error = c(
+  rmse(data_trn$Life_expectancy, predict(add_mod_small, data_trn)),
+  rmse(data_trn$Life_expectancy, predict(add_back_aic_mod, data_trn)),
+  rmse(data_trn$Life_expectancy, predict(add_back_bic_mod, data_trn)),
+  rmse(data_trn$Life_expectancy, predict(add_back_bic_mod2, data_trn))
+)
+
+test_error = c(
+  rmse(data_tst$Life_expectancy, predict(add_mod_small, data_tst)),
+  rmse(data_tst$Life_expectancy, predict(add_back_aic_mod, data_tst)),
+  rmse(data_tst$Life_expectancy, predict(add_back_bic_mod, data_tst)),
+  rmse(data_tst$Life_expectancy, predict(add_back_bic_mod2, data_tst))
+)
+
+life_models = c("Additive Model", "Backward AIC Model", "Backward BIC Model", "Backward BIC Model V2")
+life_results = data.frame(life_models, train_error, test_error)
+colnames(life_results) = c("Model", "Train RMSE", "Test RMSE")
+knitr::kable(life_results)
+```
+
+
+```{r}
+library(patchwork)
+
+# function from week 8 homework
+diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', alpha = 0.01, plotit = TRUE, testit = TRUE){
+  
+  # Create individual diagnostic components
+  
+  # Fitted vs Residuals plot
+  p1 = ggplot(model, aes(x = .fitted, y = .resid)) +
+    geom_point(color = pcol) +
+    geom_hline(yintercept = 0, color = lcol) +
+    theme_minimal() +
+    labs(x = 'Fitted',
+         y = 'Residuals',
+         title = 'Fitted vs. Residuals Plot')
+
+  # Normal Q-Q Plot
+  p2 = ggplot(model, aes(sample = .resid)) +
+    geom_qq(color = pcol) +
+    geom_qq_line(color = lcol) +
+    theme_minimal() +
+    labs(x = 'Theoretical Quartiles',
+         y = 'Sample Quartiles',
+         title = 'Normal Q-Q Plot')
+  
+  # Combine plots side by side
+  p_final = p1 + p2
+
+
+  # p-value and decision 
+  p_val = shapiro.test(model$residuals)$p.value
+  decision = if_else(p_val < alpha, 'Reject', 'Fail to Reject')
+
+  
+  # Logic for which diagnostics should be returned by function
+  output = list('p_val' = p_val, 'decision' = decision, 'plots' = p_final)
+  
+  if(plotit == TRUE & testit == TRUE){
+    return(output)
+  }
+  else if(plotit == TRUE & testit == FALSE){
+    return(output[3])
+  }
+  else if(plotit == FALSE & testit == TRUE){
+    return(output[1:2])
+  }
+  
+}
+
+```
+
+
+```{r}
+diagnostics(add_back_bic_mod)
+```
+
+
+```{r}
+library(tidyverse)
+data_bic = data_trn %>% 
+  select("Under_five_deaths", "Adult_mortality", "Alcohol_consumption", "BMI", "Incidents_HIV", "GDP_per_capita", "Thinness_ten_nineteen_years",
+         "Schooling", "Developed", "Life_expectancy")
+pairs(data_bic, col = 'dodgerblue')
+
+```
+
+```{r}
+formula_bic = formula(add_back_bic_mod)
+
+#GDP_per_capita +
+add_back_bic_mod2 = lm(Life_expectancy ~ poly(Under_five_deaths, 2) + Adult_mortality + Alcohol_consumption + BMI +  
+                         Incidents_HIV + log(GDP_per_capita) + Thinness_ten_nineteen_years + Schooling + Developed,
+                       data = data_trn)
+
+diagnostics(add_back_bic_mod2)
+summary(add_back_bic_mod2)
+```
+
+```{r}
+# BP test
+
+library(lmtest)
+bptest(add_back_bic_mod2)$p.value
+
+```
+
+
